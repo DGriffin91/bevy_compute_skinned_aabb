@@ -196,55 +196,16 @@ fn joint_animation(time: Res<Time>, mut query: Query<&mut Transform, With<Animat
 fn skinned_vertex_locations(
     query: Query<(&Handle<Mesh>, &SkinnedMesh)>,
     meshes: Res<Assets<Mesh>>,
-    skinned_mesh_inverse_bindposes_assets: Res<Assets<SkinnedMeshInverseBindposes>>,
+    inverse_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
     joint_query: Query<&GlobalTransform>,
     mut debug_vertex_cubes: Query<&mut Transform, (With<DebugVertex>, Without<AABBDebugCube>)>,
     mut aabb_debug_cube: Query<&mut Transform, (With<AABBDebugCube>, Without<DebugVertex>)>,
 ) {
     for (mesh_h, skinned_mesh) in query.iter() {
         if let Some(mesh) = meshes.get(mesh_h) {
-            // Get required vertex attributes
-            let mesh_positions = if let Some(VertexAttributeValues::Float32x3(positions)) =
-                mesh.attribute(Mesh::ATTRIBUTE_POSITION)
-            {
-                positions
-            } else {
-                continue;
-            };
-            let mesh_indices = if let Some(VertexAttributeValues::Uint16x4(indices)) =
-                mesh.attribute(Mesh::ATTRIBUTE_JOINT_INDEX)
-            {
-                indices
-            } else {
-                continue;
-            };
-            let mesh_weights = if let Some(VertexAttributeValues::Float32x4(weights)) =
-                mesh.attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT)
-            {
-                weights
-            } else {
-                continue;
-            };
-
-            // get skinned mesh joint models
-            let mut joints = Vec::new();
-            if let Some(_) = SkinnedMeshJoints::build(
-                skinned_mesh,
-                &skinned_mesh_inverse_bindposes_assets,
-                &joint_query,
-                &mut joints,
-            ) {
-                // Use skin model to get world space vertex positions
-                let ws_positions: Vec<Vec3> = mesh_positions
-                    .iter()
-                    .zip(mesh_indices)
-                    .zip(mesh_weights)
-                    .map(|((pos, indices), weights)| {
-                        let model = skin_model(&joints, indices, Vec4::from(*weights));
-                        model.transform_point3(Vec3::from(*pos))
-                    })
-                    .collect();
-
+            let ws_positions =
+                get_skinned_vertex_locations(&mesh, skinned_mesh, &joint_query, &inverse_bindposes);
+            if let Some(ws_positions) = ws_positions {
                 // update debug cube positions to match world space vertices
                 for (mut trans, ws_pos) in debug_vertex_cubes.iter_mut().zip(&ws_positions) {
                     trans.translation = *ws_pos;
@@ -261,6 +222,56 @@ fn skinned_vertex_locations(
             }
         }
     }
+}
+
+fn get_skinned_vertex_locations(
+    mesh: &Mesh,
+    skinned_mesh: &SkinnedMesh,
+    joint_query: &Query<&GlobalTransform>,
+    inverse_bindposes: &Assets<SkinnedMeshInverseBindposes>,
+) -> Option<Vec<Vec3>> {
+    // Get required vertex attributes
+    let mesh_positions = if let Some(VertexAttributeValues::Float32x3(positions)) =
+        mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+    {
+        positions
+    } else {
+        return None;
+    };
+    let mesh_indices = if let Some(VertexAttributeValues::Uint16x4(indices)) =
+        mesh.attribute(Mesh::ATTRIBUTE_JOINT_INDEX)
+    {
+        indices
+    } else {
+        return None;
+    };
+    let mesh_weights = if let Some(VertexAttributeValues::Float32x4(weights)) =
+        mesh.attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT)
+    {
+        weights
+    } else {
+        return None;
+    };
+
+    // get skinned mesh joint models
+    let mut joints = Vec::new();
+    if let Some(_) =
+        SkinnedMeshJoints::build(skinned_mesh, &inverse_bindposes, &joint_query, &mut joints)
+    {
+        // Use skin model to get world space vertex positions
+        let ws_positions: Vec<Vec3> = mesh_positions
+            .iter()
+            .zip(mesh_indices)
+            .zip(mesh_weights)
+            .map(|((pos, indices), weights)| {
+                let model = skin_model(&joints, indices, Vec4::from(*weights));
+                model.transform_point3(Vec3::from(*pos))
+            })
+            .collect();
+
+        return Some(ws_positions);
+    }
+    None
 }
 
 fn skin_model(joint_matrices: &Vec<Mat4>, indexes: &[u16; 4], weights: Vec4) -> Mat4 {
