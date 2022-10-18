@@ -259,15 +259,13 @@ fn get_skinned_vertex_locations(
         SkinnedMeshJoints::build(skinned_mesh, &inverse_bindposes, &joint_query, &mut joints)
     {
         // Use skin model to get world space vertex positions
-        let ws_positions: Vec<Vec3> = mesh_positions
-            .iter()
-            .zip(mesh_indices)
-            .zip(mesh_weights)
-            .map(|((pos, indices), weights)| {
-                let model = skin_model(&joints, indices, Vec4::from(*weights));
-                model.transform_point3(Vec3::from(*pos))
-            })
-            .collect();
+        let mut ws_positions = Vec::with_capacity(mesh_positions.len());
+
+        for ((pos, indices), weights) in mesh_positions.iter().zip(mesh_indices).zip(mesh_weights) {
+            let model = skin_model(&joints, indices, Vec4::from(*weights));
+            let ws_pos = model.transform_point3(Vec3::from(*pos));
+            ws_positions.push(ws_pos);
+        }
 
         return Some(ws_positions);
     }
