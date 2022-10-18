@@ -143,12 +143,12 @@ fn setup(
     // Create skinned mesh renderer. Note that its transform doesn't affect the position of the mesh.
     commands
         .spawn_bundle(PbrBundle {
-            mesh: mesh.clone(),
+            mesh,
             material: materials.add(Color::rgb(0.5, 0.5, 0.5).into()),
             ..default()
         })
         .insert(SkinnedMesh {
-            inverse_bindposes: inverse_bindposes.clone(),
+            inverse_bindposes,
             joints: joint_entities,
         });
 
@@ -204,7 +204,7 @@ fn skinned_vertex_locations(
     for (mesh_h, skinned_mesh) in query.iter() {
         if let Some(mesh) = meshes.get(mesh_h) {
             let ws_positions =
-                get_skinned_vertex_locations(&mesh, skinned_mesh, &joint_query, &inverse_bindposes);
+                get_skinned_vertex_locations(mesh, skinned_mesh, &joint_query, &inverse_bindposes);
             if let Some(ws_positions) = ws_positions {
                 // update debug cube positions to match world space vertices
                 for (mut trans, ws_pos) in debug_vertex_cubes.iter_mut().zip(&ws_positions) {
@@ -231,32 +231,23 @@ fn get_skinned_vertex_locations(
     inverse_bindposes: &Assets<SkinnedMeshInverseBindposes>,
 ) -> Option<Vec<Vec3>> {
     // Get required vertex attributes
-    let mesh_positions = if let Some(VertexAttributeValues::Float32x3(positions)) =
-        mesh.attribute(Mesh::ATTRIBUTE_POSITION)
-    {
-        positions
-    } else {
-        return None;
+    let mesh_positions = match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
+        Some(VertexAttributeValues::Float32x3(positions)) => positions,
+        _ => return None,
     };
-    let mesh_indices = if let Some(VertexAttributeValues::Uint16x4(indices)) =
-        mesh.attribute(Mesh::ATTRIBUTE_JOINT_INDEX)
-    {
-        indices
-    } else {
-        return None;
+
+    let mesh_indices = match mesh.attribute(Mesh::ATTRIBUTE_JOINT_INDEX) {
+        Some(VertexAttributeValues::Uint16x4(indices)) => indices,
+        _ => return None,
     };
-    let mesh_weights = if let Some(VertexAttributeValues::Float32x4(weights)) =
-        mesh.attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT)
-    {
-        weights
-    } else {
-        return None;
+    let mesh_weights = match mesh.attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT) {
+        Some(VertexAttributeValues::Float32x4(weights)) => weights,
+        _ => return None,
     };
 
     // get skinned mesh joint models
     let mut joints = Vec::new();
-    if let Some(_) =
-        SkinnedMeshJoints::build(skinned_mesh, &inverse_bindposes, &joint_query, &mut joints)
+    if SkinnedMeshJoints::build(skinned_mesh, inverse_bindposes, joint_query, &mut joints).is_some()
     {
         // Use skin model to get world space vertex positions
         let mut ws_positions = Vec::with_capacity(mesh_positions.len());
@@ -272,7 +263,7 @@ fn get_skinned_vertex_locations(
     None
 }
 
-fn skin_model(joint_matrices: &Vec<Mat4>, indexes: &[u16; 4], weights: Vec4) -> Mat4 {
+fn skin_model(joint_matrices: &[Mat4], indexes: &[u16; 4], weights: Vec4) -> Mat4 {
     weights.x * joint_matrices[indexes[0] as usize]
         + weights.y * joint_matrices[indexes[1] as usize]
         + weights.z * joint_matrices[indexes[2] as usize]
